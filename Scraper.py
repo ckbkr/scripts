@@ -1,8 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-
-#Den Quellcode liest wenn dan eh nur Max. Das ist mein zweites Python programm dieses Jahr. Also lass mich in ruh :D
+#This is a scraper for interfacelift, the resolution is hardcoded
+#Start with the page to begin with as a parameter
 
 import sys, re, socket, string, time
 import requests
