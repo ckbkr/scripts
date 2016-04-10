@@ -1,10 +1,14 @@
-# Written by Cookie Baker, first draft
-require 'ripl'
+# Written by Cookie Baker
+#coding: utf-8
+
+# Use --help to see a list of commands
+# Excuse the messy copy paste way of coding here, I wasn't paying much attention while doing this
+
 require 'sqlite3'
 require 'json'
 require 'mysql' 
 require 'optparse'
-require 'pry'
+require 'unicode'
 
 class MapEntries
 
@@ -16,6 +20,7 @@ class MapEntries
     @mapPath = "maps"
     @materialsPath = "materials"
     @modelsPath = "models"
+    @trailsPath = "materials/sprites"
     @ckSurfDB = "addons/sourcemod/data/sqlite/cksurf-sqlite.sq3"
     @umcConfig = [ 0, 5, 2, 2, 1, 1, 1 ]
 
@@ -27,9 +32,12 @@ class MapEntries
     @hddArms = Hash.new
     @hddSkins = Hash.new 
     @databaseSkins = Hash.new
+    
+    @hddTrails = Hash.new
+    @databaseTrails = Hash.new
   end
 
-  def unpack(onlyMissing=false)
+  def unpack(path,onlyMissing=false)
     @mapDir = @serverPath+"/"+@mapPath
     files = Dir.new(@mapDir)
     entries = files.entries
@@ -38,8 +46,9 @@ class MapEntries
       counter = counter +1 
       if entry.end_with? ".bz2"
         if onlyMissing == true
-          if File.exist? (@mapDir+"/"+entry[0,(entry.rindex ".bz2")])
-            p "Exists: " + entry[0,(entry.rindex ".bz2")]
+        #TODO: this doesnt report exisiting files for vmt or mdl.. peek into bz2 instead?
+          if File.exist? (@mapDir+"/"+entry[0,(entry.rindex ".bsp")])
+            p "Exists: " + entry[0,(entry.rindex ".bsp")]
             next
           end
         end
@@ -52,14 +61,14 @@ class MapEntries
     p "Done unpacking"
   end    
 
-  def pack(onlyMissing=false)
+  def pack(path,onlyMissing=false,extension="")
     @mapDir = @serverPath+"/"+@mapPath
     files = Dir.new(@mapDir)
     entries = files.entries
     counter = 0
     entries .each do |entry|
-     counter = counter +1 
-     if entry.end_with? ".bsp"
+      counter = counter +1 
+      if ( entry.end_with? extension || ( extension == "" && !(entry.end_with? ".bz2") ) )
         if onlyMissing == true
           if File.exist? (@mapDir+"/"+entry +".bz2")
             p "Exists: " + entry+".bz2"
@@ -70,8 +79,8 @@ class MapEntries
         join = "cd " + @mapDir + " && " + @packCommand + entry
         ret = `#{join}`
         p join
-      end
     end
+  end
     p "Done packing"
   end
 
@@ -98,8 +107,8 @@ class MapEntries
     db.results_as_hash = true
     stm = db.prepare "SELECT mapname, count(CASE WHEN zonetype = 3 THEN 1 ELSE NULL END)+1 AS stages, \
                       (SELECT tier FROM ck_maptier b WHERE b.mapname = a.mapname) AS tier, count(DISTINCT zonegroup)-1 AS bonuses \
-              FROM ck_zones a \
-              GROUP BY mapname \
+                      FROM ck_zones a \
+                      GROUP BY mapname \
                       ORDER BY tier ASC; "
 
     rs = stm.execute
@@ -107,10 +116,8 @@ class MapEntries
     mapInfo = Hash.new
     # name, stages, tier, bonus
     while (row = rs.next) do
-        #puts row.join "\s"
-        count = count + 1
-    #p row
-        mapInfo[row['mapname']] = [  row['stages'], row['tier'],  row['bonuses'] ]
+      count = count + 1
+      mapInfo[row['mapname']] = [  row['stages'], row['tier'],  row['bonuses'] ]
     end
 
     p "Maps in db: " + count.to_s
@@ -125,10 +132,8 @@ class MapEntries
       mapped = mapInfo[map]
       if mapped != nil
         count = count + 1
-        #p "Found in db: " + map 
-    #p mapped
-    mapTier = 0
-    if mapped[1] == nil 
+        mapTier = 0
+        if mapped[1] == nil 
           mapTier = 0
         else
           mapTier = mapped[1]
@@ -138,8 +143,7 @@ class MapEntries
       end
     end
     p "Mapped: " + count.to_s
-    #binding.pry
-
+    
     umcFile = File.open("umc_mapcycle.txt","w")
     umcFile << "\"umc_mapcycle\"\n"
     umcFile << "{\n"
@@ -171,48 +175,71 @@ class MapEntries
     umcFile << "}\n"
   end
 
-  def listMDL(parent,child,removePrefix="")
-    #child = String.new(child)
-    #path = String.new
+  def scanSkins(parent,child,removePrefix="",ending=".mdl")
     if child.empty? == true 
       path = parent
     else
       path = parent+"/"+child
     end
     curr = Dir.new(path)
-    #p "Child: " + child
-    #p "Current dir: " + path
     curr.entries().each do |entry|
-      #p entry
-      #if File.new.directory?
-      if entry.end_with? ".mdl" 
-        name = entry[0,entry.rindex(".mdl")]
+      if entry.end_with? ending 
+        name = entry[0,entry.rindex(ending)]
         if name.end_with? "arms"
           while (@hddSkins[name] != nil) do
             name = name + "_"
           end
           path.slice! removePrefix
-      #p path
           @hddArms[name] = { "path" => path, "file" => entry }
           next 
         end
+        name.gsub! "_", " "
         while (@hddSkins[name] != nil) do
           name = name + "_"
         end
         path.slice! removePrefix
-        #p path
+        #name = Unicode::capitalize(name)
+        name.gsub!(/\S+/, &:capitalize)
         @hddSkins[name] = { "filepath" => path, "file" => entry }
       end
       
       begin 
         if File.directory?(path+"/"+entry) && entry != ".." && entry != "." 
-          listMDL path,entry,removePrefix
+          scanSkins path,entry,removePrefix,ending
         end
       rescue
       end
     end
   end
 
+  def scanTrails(parent,child,removePrefix="",ending=".vmt")
+    if child.empty? == true 
+      path = parent
+    else
+      path = parent+"/"+child
+    end
+    curr = Dir.new(path)
+    curr.entries().each do |entry|
+      if entry.end_with? ending 
+        name = entry[0,entry.rindex(ending)]
+        name.gsub! "_", " "
+        while (@hddTrails[name] != nil) do
+          name = name + "_"
+        end
+        path.slice! removePrefix
+        #name = Unicode::capitalize(name)
+        name.gsub!(/\S+/, &:capitalize)
+        @hddTrails[name] = { "filepath" => path, "file" => entry }
+      end
+      
+      begin 
+        if File.directory?(path+"/"+entry) && entry != ".." && entry != "." 
+          scanTrails path,entry,removePrefix,ending
+        end
+      rescue
+      end
+    end
+  end
 
   def joinArms
     @hddArms.each do |k,values|
@@ -231,41 +258,77 @@ class MapEntries
     p @hddArms
   end
 
-  def listModels(path="")
-    listMDL ( @serverPath + "/" + @modelsPath), "", @serverPath + "/" 
-    listMDL ( @serverPath + "/" + @materialsPath), "", @serverPath + "/" 
+  def listSkins
+    scanSkins ( @serverPath + "/" + @modelsPath), "", @serverPath + "/"
+    scanSkins ( @serverPath + "/" + @materialsPath), "", @serverPath + "/"
     joinArms
+  end
+  
+  def listTrails
+    scanTrails ( @serverPath + "/" + @trailsPath), "", @serverPath + "/"
   end
   
   def openDatabase
     db = Mysql.new( @storeDBHost, @storeDBUser, @storeDBPass, @storeDBName )   
   end
   
-  def loadModels(db)
+  def loadSkins(db)
     # as hash is actually default
     res = db.query("select id,name,attrs from store_items where type = 'skin'")
     databaseSkins = Hash.new
     res.each do |entry|
-      #p entry
       json = JSON.parse(entry[2])
       @databaseSkins[entry[1]] = { "id" => entry[0], "model" => json["model"], "arms" => json["arms"] }
-      #binding.pry
     end
-    #binding.pry
-    db
+  end
+  
+  def loadTrails(db)
+    # as hash is actually default
+    res = db.query("select id,name,attrs from store_items where type = 'trails'")
+    databaseSkins = Hash.new
+    res.each do |entry|
+      json = JSON.parse(entry[2])
+      @databaseTrails[entry[1]] = { "id" => entry[0], "material" => json["material"] }
+    end
   end
 
-  def mergeHDDDatabase(db)
+  def mergeHDDDatabaseTrails(db)
+    @databaseTrails.each do |k,values|
+      file = values["material"]
+      if (ret = @hddTrails.find { | k,v | (v["filepath"]+"/"+v["file"]) == file } ) != nil 
+        #p "Found HDD representation of database: " + file
+        ret[1]["present"] = true
+        values["present"] = true
+      end
+    end
+
+    @hddTrails.delete_if { |k,v| v["present"] != nil }
+    p "Skins not in database:" 
+    p @hddTrails
+    p "Skins missing from hdd:"
+    @deleteTrails = @databaseTrails.select { |k,v| v["present"] == nil }
+    p @deleteTrails
+
+    # Resolve name conflicts right away
+    @hddTrails.each do |k,values|
+      values["name"] = k
+      loop do
+        if ( (@databaseTrails.select { |k,v| v == values["name"] }).empty? )
+          break
+        end
+        values["name"] = values["name"] + "_"
+      end
+    end
+    updateDBTrails( db,  @hddTrails, @deleteTrails )
+  end
+
+  def mergeHDDDatabaseSkins(db)
     @databaseSkins.each do |k,values|
-      #if k.include? "pink_panther"
-      #  binding.pry
-      #end
       file = values["model"]
       if (ret = @hddSkins.find { | k,v | (v["filepath"]+"/"+v["file"]) == file } ) != nil 
         #p "Found HDD representation of database: " + file
         ret[1]["present"] = true
         values["present"] = true
-    #binding.pry
         if ret[1]["arms"] != nil && ret[1]["armspath"] != nil 
           if values["arms"] != nil && values["arms"] != ret[1]["armspath"] +"/"+ ret[1]["arms"] 
             #binding.pry
@@ -277,14 +340,16 @@ class MapEntries
       end
     end
     p "Skins needed to be updated in database"
-    pp (@updateEntries = @hddSkins.select { |k,v| v["modified"] != nil })
-    
-    @hddSkins.delete_if { |k,v| v["modified"] == nil && v["present"] != nil }
+    @updateEntries = @hddSkins.select { |k,v| v["modified"] != nil }
+    p @updateEntries
+    @hddSkins.delete_if { |k,v| v["present"] != nil }
     p "Skins not in database:" 
-    pp @hddSkins
+    p @hddSkins
     p "Skins missing from hdd:"
-    pp (@deleteSkins = @databaseSkins.select { |k,v| v["present"] == nil })
-
+    @deleteSkins = @databaseSkins.select { |k,v| v["present"] == nil }
+    p @deleteSkins
+    p "Setting delete value to empty"
+    @deleteSkins = {}
     # Resolve name conflicts right away
     @hddSkins.each do |k,values|
       values["name"] = k
@@ -292,34 +357,41 @@ class MapEntries
         if ( (@databaseSkins.select { |k,v| v == values["name"] }).empty? )
           break
         end
-        binding.pry
         values["name"] = values["name"] + "_"
       end
     end
     updateDBSkins( db, @updateEntries, @hddSkins, @deleteSkins )
   end
+  
+  
+  
+  def mergeTrails(db)
+    loadTrails(db)
+    listTrails
+    mergeHDDDatabaseTrails(db)
+  end
 
-  def mergeModels(db)
-    loadModels(db)
-    listModels
-    mergeHDDDatabase(db)
+  def mergeSkins(db)
+    loadSkins(db)
+    listSkins
+    mergeHDDDatabaseSkins(db)
   end
   
-  def getSkinsCategoryFromDB(db)
-    sqlFindCategory = "select id from store_categories where require_plugin='skin'"
+  def getCategoryFromDB(db,category)
+    sqlFindCategory = "select id from store_categories where require_plugin='"+category+"'"
     res = db.query(sqlFindCategory)
-    skin_category = nil
+    category = nil
     begin 
-    skin_category = res.fetch_row[0]
+      category = res.fetch_row[0]
     rescue
-      p "Failed to retrieve 'skin' category from database"
+      p "Failed to retrieve '"+category+"' category from database"
       return nil
     end
-    skin_category
+    category
   end
   
   def deleteSkinsFromDB(db)
-     skin_category = getSkinsCategoryFromDB(db)
+     skin_category = getCategoryFromDB(db,"skin")
      if skin_category == nil
        return 0
      end
@@ -328,14 +400,55 @@ class MapEntries
      stmt = db.prepare sqlDeleteAllSkins  
      stmt.execute skin_category
   end
+  
+  def deleteTrailsFromDB(db)
+     trails_category = getCategoryFromDB(db,"trails")
+     if trails_category == nil
+       return 0
+     end
+     
+     sqlDeleteAllSkins = "delete from store_items where category_id = ?" 
+     stmt = db.prepare sqlDeleteAllSkins  
+     stmt.execute trails_category
+  end
+  
+  
+  
+  def updateDBTrails( db,  addEntries = {}, deleteEntries = {} )
+    sqlInsertTrail = "insert into store_items(name,display_name,type,loadout_slot,category_id,attrs) values(?,?,?,?,?,?)"
+    sqlDeleteTrail = "delete from store_items where id=?"
+    
+    trail_category = getCategoryFromDB(db,"trails")
+    if trail_category == nil
+      return 0
+    end
+    
+    stmt = db.prepare sqlDeleteTrail 
+    deleteEntries.each do |k,values|
+      p "Deleting from database: " + k
+      begin
+        stmt.execute values["id"]
+      rescue
+      end
+    end
+
+    stmt = db.prepare sqlInsertTrail 
+    addEntries.each do |k,values|
+      
+      jsonHash = { "material" => values["filepath"] + "/" + values["file"],  "teams" => [ 2, 3] }
+      begin
+        stmt.execute "trail_"+values["name"], values["name"], "trails", "trails", trail_category, JSON.pretty_generate(jsonHash)
+      rescue
+      end
+    end
+  end
 
   def updateDBSkins( db, updateEntries = {}, addEntries = {}, deleteEntries = {} )
-    #binding.pry
     sqlUpdateSkin = "update store_items set name=?, attrs=? where id=?"
     sqlInsertSkin = "insert into store_items(name,display_name,type,loadout_slot,category_id,attrs) values(?,?,?,?,?,?)"
     sqlDeleteSkin = "delete from store_items where id=?"
 
-    skin_category = getSkinsCategoryFromDB(db)
+    skin_category = getCategoryFromDB(db,"skin")
     if skin_category == nil
       return 0
     end
@@ -366,7 +479,6 @@ class MapEntries
     stmt = db.prepare sqlInsertSkin 
     addEntries.each do |k,values|
       arms = String.new
-      #binding.pry
       if values["armspath"] != nil && values["arms"] != nil 
         arms = values["armspath"] + "/" + values["arms"]
       end
@@ -378,24 +490,38 @@ class MapEntries
     end
   end
 
-  def loadTrails
-
-  end
   
   def entry
     options = {}
     OptionParser.new do |opts|
       opts.banner = "Usage: " + File.basename(__FILE__) +" [options]"
     
-      opts.on("-u", "--unpack", "unpack map bz2 files") do |u|
-        options[:unpack] = u
+      opts.on("", "--pack_maps", "pack map bz2 files") do |u|
+        options[:packmaps] = u
       end
       
-      opts.on("-p", "--pack", "pack map bz2 files") do |pa|
-        options[:pack] = pa
+      opts.on("", "--pack_materials", "pack map bz2 files") do |u|
+        options[:packmod] = u
       end
       
-      opts.on("-e", "--existing", "do not unpack/pack files of which the map/archive file already exists") do |e|
+      opts.on("", "--pack_models", "pack map bz2 files") do |u|
+        options[:packmat] = u
+      end
+      
+      
+      opts.on("", "--unp_maps", "unpack map bz2 files") do |pa|
+        options[:unpmap] = pa
+      end
+      
+      opts.on("", "--unp_materials", "unpack materials bz2 files") do |pa|
+        options[:unpmap] = pa
+      end
+      
+      opts.on("", "--unp_models", "unpack models bz2 files") do |pa|
+        options[:unpmap] = pa
+      end
+      
+      opts.on("", "--existing", "do not unpack/pack files of which the map,etc/archive file already exists") do |e|
         options[:existing] = e
       end
       
@@ -407,31 +533,43 @@ class MapEntries
         options[:mapcycle] = mc
       end
       
-      opts.on("-d", "--drop_skins", "delete all skins from the database") do |ds|
+      opts.on("", "--drop_skins", "delete all skins from the database") do |ds|
         options[:dropskins] = ds
       end
       
-      opts.on("-i", "--import_skins", "import skins to the database from the mods/materials folder") do |is|
+      opts.on("", "--drop_trails", "delete all trails from the database") do |ds|
+        options[:droptrails] = ds
+      end
+      
+      opts.on("", "--import_skins", "import skins to the database from the mods/materials folder") do |is|
         options[:importskins] = is
+      end
+      
+      opts.on("", "--import_trails", "import trails to the database from the mods/materials folder") do |it|
+        options[:importrails] = it
       end
     end.parse!
 
    
-    if options[:unpack] == true 
+    if options[:unpmap] == true 
       if options[:existing] == true
-        unpack(true)
+        unpack(@serverPath+"/"+@mapPath,true)
       else
-        unpack
+        unpack(@serverPath+"/"+@mapPath)
       end
     end
     
-    if options[:pack] == true 
+    if options[:packmaps] == true 
       if options[:existing] == true
-        pack(true)
+        pack(@serverPath+"/"+@mapPath,true,".bsp")
       else
-        pack
+        pack(@serverPath+"/"+@mapPath,".bsp")
       end
     end
+    
+    # I regret doing this idea of packing materials and models this way
+    
+    
     
     maplist = nil
     if options[:maplist] == true 
@@ -453,12 +591,27 @@ class MapEntries
       deleteSkinsFromDB(db)
     end
     
+    if options[:droptrails] == true 
+      if db == nil
+        db = openDatabase
+      end
+      deleteTrailsFromDB(db)
+    end
+    
     if options[:importskins] == true 
       if db == nil
         db = openDatabase
       end
-      mergeModels(db)
+      mergeSkins(db)
     end
+    
+    if options[:importrails] == true 
+      if db == nil
+        db = openDatabase
+      end
+      mergeTrails(db)
+    end
+    
     
     
   end
