@@ -17,6 +17,7 @@ class MapEntries
     @materialsPath = "materials"
     @modelsPath = "models"
     @ckSurfDB = "addons/sourcemod/data/sqlite/cksurf-sqlite.sq3"
+    @umcConfig = [ 0, 5, 2, 2, 1, 1, 1 ]
 
     @storeDBHost = "localhost"
     @storeDBUser = "root"
@@ -145,13 +146,17 @@ class MapEntries
     
     for i in 0..6
       if !(mappedResult[i].empty?) 
-        umcFile << "    \"Tier "+i.to_s+"\"\n"
-    umcFile << "    {\n"
-        umcFile << "        \"maps_invote\" \"0\"\n"
-    mappedResult[i].each do |res|
+        if i == 0 
+          umcFile << "    \"No Tier\"\n"
+        else
+          umcFile << "    \"Tier "+i.to_s+"\"\n"
+        end
+        umcFile << "    {\n"
+        umcFile << "        \"maps_invote\" \"" + @umcConfig[i].to_s + "\"\n"
+        mappedResult[i].each do |res|
           umcFile << "        \""+res[0]+"\"        { \"display\"        \""+res[0]+" (T" + i.to_s
           if res[1] > 1 
-        umcFile << " " + res[1].to_s + "S"
+            umcFile << " " + res[1].to_s + "S"
           else
             umcFile << " L"
           end
@@ -272,13 +277,13 @@ class MapEntries
       end
     end
     p "Skins needed to be updated in database"
-    p (@updateEntries = @hddSkins.select { |k,v| v["modified"] != nil })
+    pp (@updateEntries = @hddSkins.select { |k,v| v["modified"] != nil })
     
     @hddSkins.delete_if { |k,v| v["modified"] == nil && v["present"] != nil }
     p "Skins not in database:" 
-    p @hddSkins
+    pp @hddSkins
     p "Skins missing from hdd:"
-    p (@deleteSkins = @databaseSkins.select { |k,v| v["present"] == nil })
+    pp (@deleteSkins = @databaseSkins.select { |k,v| v["present"] == nil })
 
     # Resolve name conflicts right away
     @hddSkins.each do |k,values|
@@ -410,10 +415,7 @@ class MapEntries
         options[:importskins] = is
       end
     end.parse!
-    
-    if options.empty?
-      binding.pry
-    end
+
    
     if options[:unpack] == true 
       if options[:existing] == true
