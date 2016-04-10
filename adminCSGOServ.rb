@@ -46,9 +46,8 @@ class MapEntries
       counter = counter +1 
       if entry.end_with? ".bz2"
         if onlyMissing == true
-        #TODO: this doesnt report exisiting files for vmt or mdl.. peek into bz2 instead?
-          if File.exist? (@mapDir+"/"+entry[0,(entry.rindex ".bsp")])
-            p "Exists: " + entry[0,(entry.rindex ".bsp")]
+          if File.exist? (@mapDir+"/"+entry[0,(entry.rindex ".bz2")])
+            p "Exists: " + entry[0,(entry.rindex ".bz2")]
             next
           end
         end
@@ -61,14 +60,14 @@ class MapEntries
     p "Done unpacking"
   end    
 
-  def pack(path,onlyMissing=false,extension="")
+  def pack(onlyMissing=false)
     @mapDir = @serverPath+"/"+@mapPath
     files = Dir.new(@mapDir)
     entries = files.entries
     counter = 0
     entries .each do |entry|
-      counter = counter +1 
-      if ( entry.end_with? extension || ( extension == "" && !(entry.end_with? ".bz2") ) )
+     counter = counter +1 
+     if entry.end_with? ".bsp"
         if onlyMissing == true
           if File.exist? (@mapDir+"/"+entry +".bz2")
             p "Exists: " + entry+".bz2"
@@ -79,8 +78,8 @@ class MapEntries
         join = "cd " + @mapDir + " && " + @packCommand + entry
         ret = `#{join}`
         p join
+      end
     end
-  end
     p "Done packing"
   end
 
@@ -496,32 +495,15 @@ class MapEntries
     OptionParser.new do |opts|
       opts.banner = "Usage: " + File.basename(__FILE__) +" [options]"
     
-      opts.on("", "--pack_maps", "pack map bz2 files") do |u|
-        options[:packmaps] = u
+      opts.on("-u", "--unpack", "unpack map bz2 files") do |u|
+        options[:unpack] = u
       end
       
-      opts.on("", "--pack_materials", "pack map bz2 files") do |u|
-        options[:packmod] = u
+      opts.on("-p", "--pack", "pack map bz2 files") do |pa|
+        options[:pack] = pa
       end
       
-      opts.on("", "--pack_models", "pack map bz2 files") do |u|
-        options[:packmat] = u
-      end
-      
-      
-      opts.on("", "--unp_maps", "unpack map bz2 files") do |pa|
-        options[:unpmap] = pa
-      end
-      
-      opts.on("", "--unp_materials", "unpack materials bz2 files") do |pa|
-        options[:unpmap] = pa
-      end
-      
-      opts.on("", "--unp_models", "unpack models bz2 files") do |pa|
-        options[:unpmap] = pa
-      end
-      
-      opts.on("", "--existing", "do not unpack/pack files of which the map,etc/archive file already exists") do |e|
+      opts.on("-e", "--existing", "do not unpack/pack files of which the map/archive file already exists") do |e|
         options[:existing] = e
       end
       
@@ -551,25 +533,21 @@ class MapEntries
     end.parse!
 
    
-    if options[:unpmap] == true 
+    if options[:unpack] == true 
       if options[:existing] == true
-        unpack(@serverPath+"/"+@mapPath,true)
+        unpack(true)
       else
-        unpack(@serverPath+"/"+@mapPath)
+        unpack
       end
     end
     
-    if options[:packmaps] == true 
+    if options[:pack] == true 
       if options[:existing] == true
-        pack(@serverPath+"/"+@mapPath,true,".bsp")
+        pack(true)
       else
-        pack(@serverPath+"/"+@mapPath,".bsp")
+        pack
       end
     end
-    
-    # I regret doing this idea of packing materials and models this way
-    
-    
     
     maplist = nil
     if options[:maplist] == true 
