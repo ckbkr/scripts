@@ -16,17 +16,17 @@ class MapEntries
     @unpackCommand = "bzip2 -dkf " 
     @packCommand = "bzip2 -zkf9 "
     
-    @serverPath = "/home/csgo/csgo_ds/csgo"
+    @serverPath = "/home/surf/csgo_ds/csgo"
     @mapPath = "maps"
     @materialsPath = "materials"
     @modelsPath = "models"
     @trailsPath = "materials/sprites"
     @ckSurfDB = "addons/sourcemod/data/sqlite/cksurf-sqlite.sq3"
-    @umcConfig = [ 0, 5, 2, 2, 1, 1, 1 ]
+    @umcConfig = [ 0, 3, 2, 2, 0, 0, 0 ]
 
-    @storeDBHost = "localhost"
+    @storeDBHost = "daskekshaus.de"
     @storeDBUser = "root"
-    @storeDBPass = "lukas"
+    @storeDBPass = "Lukas1990!!"
     @storeDBName = "store"
     
     @hddArms = Hash.new
@@ -188,22 +188,24 @@ class MapEntries
           while (@hddSkins[name] != nil) do
             name = name + "_"
           end
-          path.slice! removePrefix
-          @hddArms[name] = { "path" => path, "file" => entry }
+          subPath = String.new path
+          subPath.slice! removePrefix
+          @hddArms[name] = { "path" => subPath, "file" => entry }
           next 
         end
         name.gsub! "_", " "
         while (@hddSkins[name] != nil) do
           name = name + "_"
         end
-        path.slice! removePrefix
-        #name = Unicode::capitalize(name)
+        subPath = String.new path
+        subPath.slice! removePrefix
         name.gsub!(/\S+/, &:capitalize)
-        @hddSkins[name] = { "filepath" => path, "file" => entry }
+        @hddSkins[name] = { "filepath" => subPath, "file" => entry }
       end
       
       begin 
-        if File.directory?(path+"/"+entry) && entry != ".." && entry != "." 
+        if File.directory?(path+"/"+entry) && entry != ".." && entry != "."
+	  p "Sub Scan: " + path + "/" + entry 
           scanSkins path,entry,removePrefix,ending
         end
       rescue
@@ -217,6 +219,7 @@ class MapEntries
     else
       path = parent+"/"+child
     end
+    #p "Path: " + path
     curr = Dir.new(path)
     curr.entries().each do |entry|
       if entry.end_with? ending 
@@ -225,14 +228,21 @@ class MapEntries
         while (@hddTrails[name] != nil) do
           name = name + "_"
         end
-        path.slice! removePrefix
-        #name = Unicode::capitalize(name)
+	subPath = String.new path
+        subPath.slice! removePrefix
+	#p "Sub path: " + subPath
         name.gsub!(/\S+/, &:capitalize)
-        @hddTrails[name] = { "filepath" => path, "file" => entry }
+        @hddTrails[name] = { "filepath" => subPath, "file" => entry }
       end
-      
+
+      #p "Entry: " + entry
+      #if entry.eql? "trails"
+      #  binding.pry
+      #end
+
       begin 
         if File.directory?(path+"/"+entry) && entry != ".." && entry != "." 
+	  p "Sub Scan: " + path + "/" + entry
           scanTrails path,entry,removePrefix,ending
         end
       rescue
@@ -379,14 +389,23 @@ class MapEntries
   def getCategoryFromDB(db,category)
     sqlFindCategory = "select id from store_categories where require_plugin='"+category+"'"
     res = db.query(sqlFindCategory)
-    category = nil
+    found_category = nil
     begin 
-      category = res.fetch_row[0]
+      found_category = res.fetch_row[0]
     rescue
       p "Failed to retrieve '"+category+"' category from database"
       return nil
     end
-    category
+    found_category 
+  end
+
+  def insertCategory(db,category,requirePlugin)
+    sqlInsertCategory = "insert into store_categories( display_name, require_plugin ) values(?,?)"
+    stmt = db.prepare sqlInsertCategory 
+    begin
+      stmt.execute category,requirePlugin
+    rescue
+    end
   end
   
   def deleteSkinsFromDB(db)
@@ -419,7 +438,12 @@ class MapEntries
     
     trail_category = getCategoryFromDB(db,"trails")
     if trail_category == nil
-      return 0
+      p "Trying to insert category"
+      insertCategory(db,"trails","trails")
+      trail_category = getCategoryFromDB(db,"trails")
+      if trail_category == nil 
+        return 0
+      end
     end
     
     stmt = db.prepare sqlDeleteTrail 
@@ -449,7 +473,12 @@ class MapEntries
 
     skin_category = getCategoryFromDB(db,"skin")
     if skin_category == nil
-      return 0
+      p "Trying to insert category"
+      insertCategory(db,"skin","skin")
+      skin_category = getCategoryFromDB(db,"skin")
+      if skin_category == nil 
+        return 0
+      end
     end
 
     stmt = db.prepare sqlDeleteSkin 
